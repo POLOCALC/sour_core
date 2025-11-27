@@ -69,10 +69,6 @@ class SONYconn:
         self.__photo_count = 0
         self._recording_status = False
         
-        # Interval shooting state variables
-        self._interval_shooting_active = False
-        self._interval_count = 0
-        
     def close_usb_connection(self):
         
         self.connection._release_usb()
@@ -796,23 +792,17 @@ class SONYconn:
 
                 out = self._set_focus_distance(value[1], flag)
 
-        elif cmd == "intervalstart":
-            if isinstance(value, list) and len(value) > 0:
-                interval = float(value[0]) if value[0] is not None else 5.0
-                num_shots = int(value[1]) if len(value) > 1 and value[1] is not None else 0
-                start_delay = float(value[2]) if len(value) > 2 and value[2] is not None else 0.0
-            elif value is not None and not isinstance(value, list):
-                interval = float(value)
-                num_shots = 0
-                start_delay = 0.0
+        elif cmd == "interval":
+            if isinstance(value, list) and len(value) >= 2:
+                interval_sec = int(value[0]) if value[0] is not None else 1
+                num_shots = int(value[1]) if value[1] is not None else 1
+            elif isinstance(value, list) and len(value) == 1:
+                interval_sec = int(value[0]) if value[0] is not None else 1
+                num_shots = 1
             else:
-                interval = 5.0
-                num_shots = 0
-                start_delay = 0.0
-            out = self._start_interval_shooting(interval, num_shots, start_delay)
-
-        elif cmd == "intervalstop":
-            out = self._stop_interval_shooting()
+                interval_sec = 1
+                num_shots = 1
+            out = self._set_interval_shooting(interval_sec, num_shots)
 
         time.sleep(0.1)
 
@@ -1590,91 +1580,121 @@ class SONYconn:
 
         del file_data
 
-    def _start_interval_shooting(self, interval=5.0, num_shots=0, start_delay=0.0):
-        """Start interval shooting (time-lapse) functionality
+    def _set_interval_shooting(self, interval_sec=1, num_shots=1):
+        """Configure the camera's internal interval shooting (timelapse) mode
         
-        This method runs synchronously and will block until all shots are taken
-        or the shooting is stopped. Note: The calling thread will be blocked
-        during the entire interval shooting session.
+        This method sets up the camera's native interval shooting functionality
+        by configuring the drive mode to timelapse and setting the interval
+        and number of shots parameters.
         
         Args:
-        - interval (float): Time in seconds between shots (default: 5.0, must be > 0)
-        - num_shots (int): Number of shots to take (default: 0 for unlimited, must be >= 0)
-        - start_delay (float): Delay before starting the interval sequence (default: 0.0, must be >= 0)
+        - interval_sec (int): Time in seconds between shots (default: 1)
+        - num_shots (int): Number of shots to take (default: 1)
         
         Returns:
-        - bool: True if interval shooting completed successfully, False otherwise
+        - bool: True if interval shooting was configured successfully, False otherwise
         """
-        # Input validation
-        if interval <= 0:
-            self.logger.info(f"Invalid interval value: {interval}. Must be > 0")
+        # Set StillCaptureMode to Drive_Timelapse
+        params = {
+            "Msg": {
+                "Value": self._PROPCODES["Values"]["StillCaptureMode"],
+                "DataType": self._PROPCODES["DataType"],
+            }
+        }
+
+        mode_dict = {
+            "Msg": {
+                "Value": PROPcodes.SONY_DRIVE_MODE["Values"]["Drive_Timelapse"],
+                "DataType": PROPcodes.SONY_DRIVE_MODE["DataType"],
+            }
+        }
+
+        PTPmsg = self.connection.send_recv_Msg(
+            USBcodes.USB_OPERATIONS["Command"],
+            self._OPCODES["Values"]["SetControlDeviceA"],
+            params=params,
+            data=mode_dict,
+            transaction=self.transactionID,
+        )
+
+        resp = self.connection._decode_msg(PTPmsg)
+
+        self.transactionID += 1
+
+        if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
+            self.logger.info("Failed to set Drive_Timelapse mode")
             return False
-        
-        if num_shots < 0:
-            self.logger.info(f"Invalid num_shots value: {num_shots}. Must be >= 0")
+
+        time.sleep(0.05)
+
+        # Set TimelapseInterval
+        params_interval = {
+            "Msg": {
+                "Value": self._PROPCODES["Values"]["TimelapseInterval"],
+                "DataType": self._PROPCODES["DataType"],
+            }
+        }
+
+        interval_dict = {
+            "Msg": {
+                "Value": interval_sec,
+                "DataType": "L",
+            }
+        }
+
+        PTPmsg = self.connection.send_recv_Msg(
+            USBcodes.USB_OPERATIONS["Command"],
+            self._OPCODES["Values"]["SetControlDeviceA"],
+            params=params_interval,
+            data=interval_dict,
+            transaction=self.transactionID,
+        )
+
+        resp = self.connection._decode_msg(PTPmsg)
+
+        self.transactionID += 1
+
+        if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
+            self.logger.info("Failed to set TimelapseInterval")
             return False
-        
-        if start_delay < 0:
-            self.logger.info(f"Invalid start_delay value: {start_delay}. Must be >= 0")
+
+        time.sleep(0.05)
+
+        # Set TimelapseNumber
+        params_number = {
+            "Msg": {
+                "Value": self._PROPCODES["Values"]["TimelapseNumber"],
+                "DataType": self._PROPCODES["DataType"],
+            }
+        }
+
+        number_dict = {
+            "Msg": {
+                "Value": num_shots,
+                "DataType": "L",
+            }
+        }
+
+        PTPmsg = self.connection.send_recv_Msg(
+            USBcodes.USB_OPERATIONS["Command"],
+            self._OPCODES["Values"]["SetControlDeviceA"],
+            params=params_number,
+            data=number_dict,
+            transaction=self.transactionID,
+        )
+
+        resp = self.connection._decode_msg(PTPmsg)
+
+        self.transactionID += 1
+
+        if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
+            self.logger.info("Failed to set TimelapseNumber")
             return False
-        
-        if self._interval_shooting_active:
-            self.logger.info("Interval shooting already active")
-            return False
-        
-        if self._current_mode != "Photo":
-            self.logger.info("Interval shooting requires Photo mode")
-            return False
-        
-        self._interval_shooting_active = True
-        self._interval_count = 0
-        
-        if start_delay > 0:
-            self.logger.info(f"Interval shooting starting in {start_delay} seconds")
-            time.sleep(start_delay)
-        
-        self.logger.info(f"Interval shooting started: interval={interval}s, num_shots={num_shots if num_shots > 0 else 'unlimited'}")
-        
-        while self._interval_shooting_active:
-            if num_shots > 0 and self._interval_count >= num_shots:
-                self.logger.info(f"Interval shooting completed: {self._interval_count} shots taken")
-                self._interval_shooting_active = False
-                break
-            
-            start_time = time.time()
-            
-            result = self._capture_photo()
-            
-            if result:
-                self._interval_count += 1
-                self.logger.info(f"Interval shot {self._interval_count} captured at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            else:
-                self.logger.info(f"Interval shot {self._interval_count + 1} failed")
-            
-            if not self._interval_shooting_active:
-                break
-            
-            # Calculate remaining time to wait, accounting for capture time
-            elapsed = time.time() - start_time
-            wait_time = max(0, interval - elapsed)
-            
-            if wait_time > 0:
-                time.sleep(wait_time)
-        
-        self.logger.info(f"Interval shooting finished: {self._interval_count} total shots")
-        return True
-    
-    def _stop_interval_shooting(self):
-        """Stop an ongoing interval shooting session
-        
-        Returns:
-        - bool: True if interval shooting was stopped, False if not active
-        """
-        if not self._interval_shooting_active:
-            self.logger.info("No interval shooting session active")
-            return False
-        
-        self.logger.info(f"Stopping interval shooting after {self._interval_count} shots")
-        self._interval_shooting_active = False
-        
+
+        time.sleep(0.05)
+
+        self.get_camera_properties()
+
+        self.logger.info(f"Interval shooting configured: interval={interval_sec}s, num_shots={num_shots}")
+
         return True
