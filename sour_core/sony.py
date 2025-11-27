@@ -791,6 +791,24 @@ class SONYconn:
                     flag = False
 
                 out = self._set_focus_distance(value[1], flag)
+
+        elif cmd == "interval":
+            if isinstance(value, list) and len(value) >= 2:
+                interval_sec = int(value[0]) if value[0] is not None else 1
+                num_shots = int(value[1]) if value[1] is not None else 1
+            elif isinstance(value, list) and len(value) == 1:
+                interval_sec = int(value[0]) if value[0] is not None else 1
+                num_shots = 1
+            else:
+                interval_sec = 1
+                num_shots = 1
+            # Validate parameters
+            if interval_sec <= 0:
+                interval_sec = 1
+            if num_shots <= 0:
+                num_shots = 1
+            out = self._set_interval_shooting(interval_sec, num_shots)
+
         time.sleep(0.1)
 
         return out
@@ -1566,3 +1584,122 @@ class SONYconn:
             writer.write(file_data[file_start:])
 
         del file_data
+
+    def _set_interval_shooting(self, interval_sec=1, num_shots=1):
+        """Configure the camera's internal interval shooting (timelapse) mode
+        
+        This method sets up the camera's native interval shooting functionality
+        by configuring the drive mode to timelapse and setting the interval
+        and number of shots parameters.
+        
+        Args:
+        - interval_sec (int): Time in seconds between shots (default: 1)
+        - num_shots (int): Number of shots to take (default: 1)
+        
+        Returns:
+        - bool: True if interval shooting was configured successfully, False otherwise
+        """
+        # Set StillCaptureMode to Drive_Timelapse
+        params = {
+            "Msg": {
+                "Value": self._PROPCODES["Values"]["StillCaptureMode"],
+                "DataType": self._PROPCODES["DataType"],
+            }
+        }
+
+        mode_dict = {
+            "Msg": {
+                "Value": PROPcodes.SONY_DRIVE_MODE["Values"]["Drive_Timelapse"],
+                "DataType": PROPcodes.SONY_DRIVE_MODE["DataType"],
+            }
+        }
+
+        PTPmsg = self.connection.send_recv_Msg(
+            USBcodes.USB_OPERATIONS["Command"],
+            self._OPCODES["Values"]["SetControlDeviceA"],
+            params=params,
+            data=mode_dict,
+            transaction=self.transactionID,
+        )
+
+        resp = self.connection._decode_msg(PTPmsg)
+
+        self.transactionID += 1
+
+        if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
+            self.logger.info(f"Failed to set Drive_Timelapse mode: MsgType={resp['MsgType']}, RespCode={resp['RespCode']}")
+            return False
+
+        time.sleep(0.05)
+
+        # Set TimelapseInterval
+        params_interval = {
+            "Msg": {
+                "Value": self._PROPCODES["Values"]["TimelapseInterval"],
+                "DataType": self._PROPCODES["DataType"],
+            }
+        }
+
+        interval_dict = {
+            "Msg": {
+                "Value": interval_sec,
+                "DataType": "L",
+            }
+        }
+
+        PTPmsg = self.connection.send_recv_Msg(
+            USBcodes.USB_OPERATIONS["Command"],
+            self._OPCODES["Values"]["SetControlDeviceA"],
+            params=params_interval,
+            data=interval_dict,
+            transaction=self.transactionID,
+        )
+
+        resp = self.connection._decode_msg(PTPmsg)
+
+        self.transactionID += 1
+
+        if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
+            self.logger.info(f"Failed to set TimelapseInterval: MsgType={resp['MsgType']}, RespCode={resp['RespCode']}")
+            return False
+
+        time.sleep(0.05)
+
+        # Set TimelapseNumber
+        params_number = {
+            "Msg": {
+                "Value": self._PROPCODES["Values"]["TimelapseNumber"],
+                "DataType": self._PROPCODES["DataType"],
+            }
+        }
+
+        number_dict = {
+            "Msg": {
+                "Value": num_shots,
+                "DataType": "L",
+            }
+        }
+
+        PTPmsg = self.connection.send_recv_Msg(
+            USBcodes.USB_OPERATIONS["Command"],
+            self._OPCODES["Values"]["SetControlDeviceA"],
+            params=params_number,
+            data=number_dict,
+            transaction=self.transactionID,
+        )
+
+        resp = self.connection._decode_msg(PTPmsg)
+
+        self.transactionID += 1
+
+        if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
+            self.logger.info(f"Failed to set TimelapseNumber: MsgType={resp['MsgType']}, RespCode={resp['RespCode']}")
+            return False
+
+        time.sleep(0.05)
+
+        self.get_camera_properties()
+
+        self.logger.info(f"Interval shooting configured: interval={interval_sec}s, num_shots={num_shots}")
+
+        return True
