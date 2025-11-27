@@ -802,6 +802,11 @@ class SONYconn:
             else:
                 interval_sec = 1
                 num_shots = 1
+            # Validate parameters
+            if interval_sec <= 0:
+                interval_sec = 1
+            if num_shots <= 0:
+                num_shots = 1
             out = self._set_interval_shooting(interval_sec, num_shots)
 
         time.sleep(0.1)
@@ -1622,7 +1627,7 @@ class SONYconn:
         self.transactionID += 1
 
         if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
-            self.logger.info("Failed to set Drive_Timelapse mode")
+            self.logger.info(f"Failed to set Drive_Timelapse mode: MsgType={resp['MsgType']}, RespCode={resp['RespCode']}")
             return False
 
         time.sleep(0.05)
@@ -1655,7 +1660,7 @@ class SONYconn:
         self.transactionID += 1
 
         if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
-            self.logger.info("Failed to set TimelapseInterval")
+            self.logger.info(f"Failed to set TimelapseInterval: MsgType={resp['MsgType']}, RespCode={resp['RespCode']}")
             return False
 
         time.sleep(0.05)
@@ -1688,7 +1693,7 @@ class SONYconn:
         self.transactionID += 1
 
         if resp["MsgType"] != "Response" or resp["RespCode"] != "OK":
-            self.logger.info("Failed to set TimelapseNumber")
+            self.logger.info(f"Failed to set TimelapseNumber: MsgType={resp['MsgType']}, RespCode={resp['RespCode']}")
             return False
 
         time.sleep(0.05)
