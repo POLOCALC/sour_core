@@ -69,6 +69,10 @@ class SONYconn:
         self.__photo_count = 0
         self._recording_status = False
         
+        # Interval shooting state variables
+        self._interval_shooting_active = False
+        self._interval_count = 0
+        
     def close_usb_connection(self):
         
         self.connection._release_usb()
@@ -791,6 +795,21 @@ class SONYconn:
                     flag = False
 
                 out = self._set_focus_distance(value[1], flag)
+
+        elif cmd == "intervalstart":
+            if isinstance(value, list):
+                interval = float(value[0]) if len(value) > 0 else 5.0
+                num_shots = int(value[1]) if len(value) > 1 else 0
+                start_delay = float(value[2]) if len(value) > 2 else 0.0
+            else:
+                interval = float(value) if value else 5.0
+                num_shots = 0
+                start_delay = 0.0
+            out = self._start_interval_shooting(interval, num_shots, start_delay)
+
+        elif cmd == "intervalstop":
+            out = self._stop_interval_shooting()
+
         time.sleep(0.1)
 
         return out
@@ -1566,3 +1585,78 @@ class SONYconn:
             writer.write(file_data[file_start:])
 
         del file_data
+
+    def _start_interval_shooting(self, interval=5.0, num_shots=0, start_delay=0.0):
+        """Start interval shooting (time-lapse) functionality
+        
+        This method runs synchronously and will block until all shots are taken
+        or the shooting is stopped.
+        
+        Args:
+        - interval (float): Time in seconds between shots (default: 5.0)
+        - num_shots (int): Number of shots to take (default: 0 for unlimited)
+        - start_delay (float): Delay before starting the interval sequence (default: 0.0)
+        
+        Returns:
+        - bool: True if interval shooting completed successfully, False otherwise
+        """
+        if self._interval_shooting_active:
+            self.logger.info("Interval shooting already active")
+            return False
+        
+        if self._current_mode != "Photo":
+            self.logger.info("Interval shooting requires Photo mode")
+            return False
+        
+        self._interval_shooting_active = True
+        self._interval_count = 0
+        
+        if start_delay > 0:
+            self.logger.info(f"Interval shooting starting in {start_delay} seconds")
+            time.sleep(start_delay)
+        
+        self.logger.info(f"Interval shooting started: interval={interval}s, num_shots={num_shots if num_shots > 0 else 'unlimited'}")
+        
+        while self._interval_shooting_active:
+            if num_shots > 0 and self._interval_count >= num_shots:
+                self.logger.info(f"Interval shooting completed: {self._interval_count} shots taken")
+                self._interval_shooting_active = False
+                break
+            
+            start_time = time.time()
+            
+            result = self._capture_photo()
+            
+            if result:
+                self._interval_count += 1
+                self.logger.info(f"Interval shot {self._interval_count} captured at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                self.logger.info(f"Interval shot {self._interval_count + 1} failed")
+            
+            if not self._interval_shooting_active:
+                break
+            
+            # Calculate remaining time to wait, accounting for capture time
+            elapsed = time.time() - start_time
+            wait_time = max(0, interval - elapsed)
+            
+            if wait_time > 0:
+                time.sleep(wait_time)
+        
+        self.logger.info(f"Interval shooting finished: {self._interval_count} total shots")
+        return True
+    
+    def _stop_interval_shooting(self):
+        """Stop an ongoing interval shooting session
+        
+        Returns:
+        - bool: True if interval shooting was stopped, False if not active
+        """
+        if not self._interval_shooting_active:
+            self.logger.info("No interval shooting session active")
+            return False
+        
+        self.logger.info(f"Stopping interval shooting after {self._interval_count} shots")
+        self._interval_shooting_active = False
+        
+        return True
