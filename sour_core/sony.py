@@ -797,12 +797,16 @@ class SONYconn:
                 out = self._set_focus_distance(value[1], flag)
 
         elif cmd == "intervalstart":
-            if isinstance(value, list):
-                interval = float(value[0]) if len(value) > 0 else 5.0
-                num_shots = int(value[1]) if len(value) > 1 else 0
-                start_delay = float(value[2]) if len(value) > 2 else 0.0
+            if isinstance(value, list) and len(value) > 0:
+                interval = float(value[0]) if value[0] is not None else 5.0
+                num_shots = int(value[1]) if len(value) > 1 and value[1] is not None else 0
+                start_delay = float(value[2]) if len(value) > 2 and value[2] is not None else 0.0
+            elif value is not None and not isinstance(value, list):
+                interval = float(value)
+                num_shots = 0
+                start_delay = 0.0
             else:
-                interval = float(value) if value else 5.0
+                interval = 5.0
                 num_shots = 0
                 start_delay = 0.0
             out = self._start_interval_shooting(interval, num_shots, start_delay)
@@ -1590,16 +1594,30 @@ class SONYconn:
         """Start interval shooting (time-lapse) functionality
         
         This method runs synchronously and will block until all shots are taken
-        or the shooting is stopped.
+        or the shooting is stopped. Note: The calling thread will be blocked
+        during the entire interval shooting session.
         
         Args:
-        - interval (float): Time in seconds between shots (default: 5.0)
-        - num_shots (int): Number of shots to take (default: 0 for unlimited)
-        - start_delay (float): Delay before starting the interval sequence (default: 0.0)
+        - interval (float): Time in seconds between shots (default: 5.0, must be > 0)
+        - num_shots (int): Number of shots to take (default: 0 for unlimited, must be >= 0)
+        - start_delay (float): Delay before starting the interval sequence (default: 0.0, must be >= 0)
         
         Returns:
         - bool: True if interval shooting completed successfully, False otherwise
         """
+        # Input validation
+        if interval <= 0:
+            self.logger.info(f"Invalid interval value: {interval}. Must be > 0")
+            return False
+        
+        if num_shots < 0:
+            self.logger.info(f"Invalid num_shots value: {num_shots}. Must be >= 0")
+            return False
+        
+        if start_delay < 0:
+            self.logger.info(f"Invalid start_delay value: {start_delay}. Must be >= 0")
+            return False
+        
         if self._interval_shooting_active:
             self.logger.info("Interval shooting already active")
             return False
