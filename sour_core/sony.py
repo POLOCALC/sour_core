@@ -24,7 +24,7 @@ import sour_core.codes.fileops as FOcodes
 
 
 if logging.getLogger().hasHandlers():
-    camera_logger = logging.getself.logger()
+    camera_logger = logging.getLogger("CameraLog")
 
 else:
     path = os.path.dirname(os.path.realpath(__file__))
